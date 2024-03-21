@@ -1,11 +1,9 @@
 import os
 os.environ['CUDA_VISIBLE_DEVICES'] = '0'
-import time
-import math
-import pickle
-from contextlib import nullcontext
+
 import numpy as np
-import torch
+import time, math, pickle, torch
+from contextlib import nullcontext
 from model import Transformer, ModelArgs
 from torch.distributed import destroy_process_group, init_process_group
 from torch.nn.parallel import DistributedDataParallel as DDP
@@ -13,7 +11,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from dataset import PretrainDataset
 import logging
 
-#To run with DDP on 4 gpus on 1 node, example:
+# To run with DDP on 4 gpus on 1 node, example:
 # torchrun --standalone --nproc_per_node=4 pretrain.py OR python -m torch.distributed.launch --nproc_per_node=4 pretrain.py
         
 def get_logger(filename, verbosity=1, name=None):
@@ -55,7 +53,7 @@ def train_epoch(epoch):
         for param_group in optimizer.param_groups:
             param_group['lr'] = lr
         # and using the GradScaler if data type is float16
-        #for micro_step in range(gradient_accumulation_steps):
+        # for micro_step in range(gradient_accumulation_steps):
         if ddp:
             # in DDP training we only need to sync gradients at the last micro step.
             # the official way to do this is with model.no_sync() context manager, but
@@ -80,11 +78,10 @@ def train_epoch(epoch):
             scaler.update()
             # flush the gradients as soon as we can, no need for this memory anymore
             optimizer.zero_grad(set_to_none=True)
-        #打印日志
+        # 打印日志
         if step % log_interval == 0:
             spend_time=time.time()-start_time
-            logger.info(
-                    'Epoch:[{}/{}]({}/{}) loss:{:.3f} lr:{:.7f} epoch_Time:{}min:'.format(
+            logger.info('Epoch:[{}/{}]({}/{}) loss:{:.3f} lr:{:.7f} epoch_Time:{}min:'.format(
                         epoch,
                         max_epoch, 
                         step, 
@@ -92,7 +89,7 @@ def train_epoch(epoch):
                         loss.item(), 
                         optimizer.param_groups[-1]['lr'],
                         spend_time / (step+1) * iter_per_epoch // 60 - spend_time // 60))
-        #
+
         if step % save_interval == 0:
             if ddp:
                 if torch.distributed.get_rank() == 0:
@@ -104,31 +101,29 @@ def train_epoch(epoch):
                 torch.save(model.state_dict(),'{}/iter_{}.pth'.format(save_dir,int(step+epoch*iter_per_epoch)))
                 model.train()
 
-#@torch.no_grad()
-# def valid_epoch(epoch):
-#     global best_val_loss
-#     losses = []
-#     model.eval()
-#     for _, (X, Y) in enumerate(val_loader):
-#         X=X.to(device)
-#         Y=Y.to(device)
-#         with ctx:
-#             logits, loss = model(X, Y)
-#         losses.append(loss.item())
-#     model.train()
-#     val_loss=np.mean(losses)
-#     #
-#     logger.info('valid loss = {:.4f}'.format(val_loss))
-#     if val_loss < best_val_loss:
-#         best_val_loss = val_loss
-#         logger.info('best val_loss: {} best_epoch: {} '.format(best_val_loss,epoch))
-#         torch.save(raw_model.state_dict(),'{}/best.pth'.format(save_dir))
-#     #
-#     return val_loss
+@torch.no_grad()
+def valid_epoch(epoch):
+    global best_val_loss
+    losses = []
+    model.eval()
+    for _, (X, Y) in enumerate(val_loader):
+        X=X.to(device)
+        Y=Y.to(device)
+        with ctx:
+            logits, loss = model(X, Y)
+        losses.append(loss.item())
+    model.train()
+    val_loss=np.mean(losses)
+
+    logger.info('valid loss = {:.4f}'.format(val_loss))
+    if val_loss < best_val_loss:
+        best_val_loss = val_loss
+        logger.info('best val_loss: {} best_epoch: {} '.format(best_val_loss,epoch))
+        torch.save(raw_model.state_dict(),'{}/best.pth'.format(save_dir))
+
+    return val_loss
 
 def init_model():
-    # model init
-    # model init
     model_args = dict(
         dim=dim,
         n_layers=n_layers,
@@ -138,7 +133,7 @@ def init_model():
         multiple_of=multiple_of,
         max_seq_len=max_seq_len,
         dropout=dropout,
-    )  # start with model_args from command line
+    )   # start with model_args from command line
     if init_from == "scratch":
         # init a new model from scratch
         print("Initializing a new model from scratch")
@@ -168,7 +163,7 @@ def init_model():
         iter_num = checkpoint["iter_num"]
         best_val_loss = checkpoint["best_val_loss"]
     return model
-# I/O
+
 if __name__=="__main__":
     out_dir = 'out'
     max_epoch = 1
@@ -179,10 +174,10 @@ if __name__=="__main__":
     eval_only = False # if True, script exits right after the first eval
     always_save_checkpoint = True # if True, always save a checkpoint after each eval
     init_from = 'scratch' # 'scratch' or 'resume' or 'gpt2*'
-    #
+
     gradient_accumulation_steps = 1 # used to simulate larger batch sizes
     batch_size = 32  # if gradient_accumulation_steps > 1, this is the micro-batch size
-    # model 根据需要更改 
+    # model 根据需要更改，这将改变模型参数多少 
     max_seq_len = 512
     dim = 512
     n_layers = 8
@@ -206,7 +201,7 @@ if __name__=="__main__":
     # system
     device = 'cuda' # examples: 'cpu', 'cuda', 'cuda:0', 'cuda:1' etc., or try 'mps' on macbooks
     dtype = 'float16' # 'float32', 'bfloat16', or 'float16', the latter will auto implement a GradScaler
-    compile = False # use PyTorch 2.0 to compile the model to be faster
+    compile = True # use PyTorch 2.0 to compile the model to be faster
     # -----------------------------------------------------------------------------
     config_keys = [
         k
@@ -219,9 +214,8 @@ if __name__=="__main__":
 
     save_dir =os.path.join(out_dir , 'pretrain')
     if not os.path.exists(save_dir): os.makedirs(save_dir)
-    logger = get_logger(os.path.join(save_dir,'log.log'))
+    logger = get_logger(os.path.join(save_dir,'pretrain.log'))
     # various inits, derived attributes, I/O setup
-   # various inits, derived attributes, I/O setup
     ddp = int(os.environ.get("RANK", -1)) != -1  # is this a ddp run?
     
     if ddp:
@@ -241,8 +235,8 @@ if __name__=="__main__":
         seed_offset = ddp_rank  # each process gets a different seed
         # world_size number of processes will be training simultaneously, so we can scale
         # down the desired gradient accumulation iterations per process proportionally
-        #assert gradient_accumulation_steps % ddp_world_size == 0
-        #gradient_accumulation_steps //= ddp_world_size
+        # assert gradient_accumulation_steps % ddp_world_size == 0
+        # gradient_accumulation_steps //= ddp_world_size
     else:
         # if not ddp, we are running on a single gpu, and one process
         master_process = True
@@ -266,19 +260,19 @@ if __name__=="__main__":
         if device_type == "cpu"
         else torch.cuda.amp.autocast()
     )
-    #
+
     best_val_loss = 1e9
-    #
+
     #-----init dataloader------
     data_path_list=[
-        './data/pretrain_data.bin'
-        #'./data/baidubaike_563w.bin',
-        #'./data/medical_book.bin',
-        # './data/medical_encyclopedia.bin',
-        # './data/medical_qa.bin',
-        # './data/wiki.bin'
+        './pretrain_data/pretrain_data.bin'
+        # './pretrain_data/baidubaike_563w.bin',
+        # './pretrain_data/medical_book.bin',
+        # './pretrain_data/medical_encyclopedia.bin',
+        # './pretrain_data/medical_qa.bin',
+        # './pretrain_data/wiki.bin'
     ]
-    train_ds = PretrainDataset(data_path_list, max_length=max_seq_len,memmap=True)
+    train_ds = PretrainDataset(data_path_list, max_length=max_seq_len, memmap=True)
     train_sampler = torch.utils.data.distributed.DistributedSampler(train_ds)
     train_loader = torch.utils.data.DataLoader(
         train_ds,
@@ -289,16 +283,16 @@ if __name__=="__main__":
         num_workers=0 if os.name == 'nt' else 4,
         sampler=train_sampler
     )
-    # val_ds = PretrainDataset(data_path_list, max_length=256)
-    # val_loader = torch.utils.data.DataLoader(
-    #     val_ds,
-    #     batch_size=batch_size,
-    #     pin_memory=False,
-    #     drop_last=False,
-    #     shuffle=False,        
-    #     num_workers=0,
-    # )
-    #init model
+    val_ds = PretrainDataset(data_path_list, max_length=max_seq_len, memmap=True)
+    val_loader = torch.utils.data.DataLoader(
+        val_ds,
+        batch_size=batch_size,
+        pin_memory=False,
+        drop_last=False,
+        shuffle=False,        
+        num_workers=0 if os.name == 'nt' else 4,
+    )
+    # init model
     model=init_model()
     model.to(device)
     # initialize a GradScaler. If enabled=False scaler is a no-op
@@ -323,7 +317,7 @@ if __name__=="__main__":
     iter_per_epoch=len(train_loader)
     for epoch in range(max_epoch):
         train_epoch(epoch)
-        #val_loss=valid_epoch(epoch)
+        val_loss=valid_epoch(epoch)
         if ddp:
             if torch.distributed.get_rank() == 0:  #一般用0，当然，可以选任意的rank保存。
                 torch.save(raw_model.state_dict(),'{}/epoch_{}.pth'.format(save_dir,epoch))
